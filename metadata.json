@@ -1,0 +1,6 @@
+{
+  "name": "Integrated Sales and Inventory System",
+  "description": "An integrated sales, purchases, and inventory management system with multi-barcode support, tax invoices, profit and loss reports, offline storage, user permissions, and barcode/thermal printer compatibility.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
