@@ -19,7 +19,7 @@ import {
   Package, Plus, Settings, LogOut, CheckCircle, Smartphone, 
   Search, Users, Landmark, FileSpreadsheet, RefreshCw, AlertTriangle, 
   Download, Upload, Edit3, Sparkles, UserCheck, ShieldClose, Store,
-  FileText, Receipt, XCircle, Ban, Layers, UserPlus, Database, Server
+  FileText, Receipt, XCircle, Ban, Layers, UserPlus, Database, Server, Keyboard
 } from 'lucide-react';
 
 export default function App() {
@@ -165,6 +165,9 @@ export default function App() {
   const [showContactModal, setShowContactModal] = useState<boolean>(false);
   const [contactType, setContactType] = useState<'customer' | 'supplier' | 'employee'>('customer');
   const [selectedContact, setSelectedContact] = useState<any | null>(null);
+
+  // Keyboard Shortcuts Modal State
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState<boolean>(false);
 
   // Invoice Editing States
   const [editingInvoice, setEditingInvoice] = useState<SaleInvoice | null>(null);
@@ -483,6 +486,111 @@ export default function App() {
     window.addEventListener('keydown', handleGlobalKeyPress);
     return () => window.removeEventListener('keydown', handleGlobalKeyPress);
   }, [products, cart]);
+
+
+  // Global Keyboard Navigation & Action Shortcuts for Cashiers
+  useEffect(() => {
+    const handleShortcuts = (e: KeyboardEvent) => {
+      const isCtrl = e.ctrlKey;
+      const isAlt = e.altKey;
+      const key = e.key.toLowerCase();
+
+      // Escape key to close modals
+      if (e.key === 'Escape') {
+        if (showShortcutsHelp) {
+          setShowShortcutsHelp(false);
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // We handle triggers that have Ctrl or Alt pressed (except standard text fields typing)
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const isTyping = targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select';
+
+      // Shortcuts helper modal: Alt + H or Ctrl + Alt + H
+      if ((isAlt && key === 'h') || (isCtrl && isAlt && key === 'h')) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowShortcutsHelp(prev => !prev);
+        return;
+      }
+
+      if (!isCtrl && !isAlt) return;
+
+      // Map keys to specific system active screens
+      let targetScreen: 'pos' | 'invoices' | 'inventory' | 'purchases' | 'contacts' | 'reports' | 'backups' | 'categories' | 'users' | 'database' | null = null;
+
+      switch (key) {
+        case 'p':
+          targetScreen = 'pos';
+          break;
+        case 's':
+          targetScreen = 'invoices'; // S for Sales list
+          break;
+        case 'i':
+          targetScreen = 'inventory'; // I for Inventory
+          break;
+        case 't':
+          targetScreen = 'purchases'; // T for Trade / purchases
+          break;
+        case 'k':
+          targetScreen = 'contacts'; // K for Contacts (Customers/Suppliers)
+          break;
+        case 'c':
+          targetScreen = 'categories'; // C for Categories
+          break;
+        case 'u':
+          targetScreen = 'users'; // U for Users
+          break;
+        case 'r':
+          targetScreen = 'reports'; // R for Reports
+          break;
+        case 'b':
+          targetScreen = 'backups'; // B for Backups
+          break;
+        case 'd':
+          targetScreen = 'database'; // D for Database
+          break;
+        default:
+          break;
+      }
+
+      if (targetScreen) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (hasAccess(targetScreen)) {
+          setActiveScreen(targetScreen);
+          showAlert(
+            isEn 
+              ? `Quick navigation: Jumped to ${targetScreen.toUpperCase()} view.` 
+              : `الانتقال السريع: تم فتح شاشة (${
+                  targetScreen === 'pos' ? 'نقطة البيع الكاشير' : 
+                  targetScreen === 'invoices' ? 'الفواتير والمبيعات' :
+                  targetScreen === 'inventory' ? 'المخزن والمنتجات' :
+                  targetScreen === 'purchases' ? 'فواتير المشتريات' :
+                  targetScreen === 'contacts' ? 'العملاء والموردين' :
+                  targetScreen === 'reports' ? 'التقارير والإحصائيات' :
+                  targetScreen === 'backups' ? 'النسخ الاحتياطي' :
+                  targetScreen === 'categories' ? 'الأقسام والتصنيفات' :
+                  targetScreen === 'users' ? 'الموظفين والصلاحيات' : 'التحكم بقواعد البيانات'
+                })`,
+            'success'
+          );
+        } else {
+          showAlert(
+            isEn 
+              ? `Access denied for screen: ${targetScreen.toUpperCase()}` 
+              : `عذراً، غير مصرح لحسابك الدخول لشاشة ${targetScreen} وفقاً للصلاحيات الممنوحة.`,
+            'warning'
+          );
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleShortcuts, true);
+    return () => window.removeEventListener('keydown', handleShortcuts, true);
+  }, [currentUser, rolePermissions, isEn, showShortcutsHelp]);
 
 
   // POS BILL PAYOUT WORKFLOW
@@ -1314,6 +1422,16 @@ export default function App() {
             className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-black px-3 py-1.5 cursor-pointer text-blue-600 transition-colors"
           >
             {isEn ? 'العربية' : 'English'}
+          </button>
+
+          {/* Keyboard Shortcuts Button */}
+          <button
+            onClick={() => setShowShortcutsHelp(true)}
+            className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold px-3 py-1.5 flex items-center gap-1.5 cursor-pointer text-slate-700 transition-colors"
+            title={isEn ? 'Show Keyboard Shortcuts (Alt+H)' : 'عرض اختصارات الكيبورد السريعة (Alt+H)'}
+          >
+            <Keyboard className="w-4 h-4 text-blue-600" />
+            <span className="hidden md:inline">{isEn ? 'Shortcuts' : 'الاختصارات'}</span>
           </button>
 
           {/* Floating Mobile Sim Toggle */}
@@ -3334,15 +3452,15 @@ export default function App() {
                       const mockPadding = settings.invoicePadding || 'normal';
 
                       const mockFontSizes = {
-                        sm: { root: '9px', title: '11px', sub: '8px', badge: '7px' },
-                        base: { root: '10px', title: '12px', sub: '8.5px', badge: '8px' },
-                        lg: { root: '12px', title: '14px', sub: '10px', badge: '9px' }
+                        sm: { root: '11px', title: '13px', sub: '10px', badge: '9px' },
+                        base: { root: '13px', title: '15px', sub: '11.5px', badge: '10px' },
+                        lg: { root: '15px', title: '17px', sub: '13px', badge: '11.5px' }
                       }[mockFontSize];
 
                       const mockPaddings = {
-                        compact: 'p-2 space-y-1',
-                        normal: 'p-3.5 space-y-2',
-                        relaxed: 'p-5 space-y-3'
+                        compact: 'p-2.5 space-y-1.5',
+                        normal: 'p-4 space-y-2.5',
+                        relaxed: 'p-6 space-y-3.5'
                       }[mockPadding];
 
                       return (
@@ -3352,7 +3470,8 @@ export default function App() {
                             fontFamily: 'monospace', 
                             borderTopColor: settings.accentColor || '#eab308',
                             maxWidth: `${mockWidth}px`,
-                            fontSize: mockFontSizes.root
+                            fontSize: mockFontSizes.root,
+                            fontWeight: 'bold'
                           }}
                         >
                           {/* Store Header Info */}
@@ -5421,6 +5540,155 @@ export default function App() {
                 {isEn ? 'Confirm' : 'تأكيد'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Help Overlay Modal */}
+      {showShortcutsHelp && (
+        <div className="fixed inset-0 bg-slate-900/65 z-55 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn text-slate-800">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full overflow-hidden shadow-2xl animate-scaleUp">
+            
+            {/* Modal Header */}
+            <div className="px-6 py-4.5 bg-gradient-to-r from-slate-50 to-slate-100/60 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="text-sm md:text-base font-black text-slate-900 flex items-center gap-2">
+                <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                  <Keyboard className="w-5 h-5" />
+                </span>
+                <div>
+                  <span>{isEn ? 'Cashier Hardware Key Navigation Guide' : 'دليل اختصارات كيبورد الكاشير السريعة'}</span>
+                  <span className="block text-[10px] text-slate-450 font-medium mt-0.5">
+                    {isEn ? 'Speed up daily checkout workflow using terminal triggers' : 'أزرار تحكم مادية ومفاتيح تنقل سريعة لتسريع فواتير الكاشير'}
+                  </span>
+                </div>
+              </h3>
+              <button 
+                onClick={() => setShowShortcutsHelp(false)} 
+                className="text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-4 text-xs">
+              
+              {/* Informational Note */}
+              <div className="bg-blue-50/50 border border-blue-150 p-3 rounded-xl text-xxs leading-relaxed text-blue-800 flex items-start gap-2.5">
+                <span className="text-lg">💡</span>
+                <div>
+                  <p className="font-bold">{isEn ? 'How to trigger:' : 'كيفية استخدام الاختصارات السريعة:'}</p>
+                  <p className="mt-0.5">
+                    {isEn 
+                      ? 'Press either Ctrl + [Key] or Alt + [Key] at the same time to navigate instantly. Access permission boundaries are fully respected.' 
+                      : 'اضغط على زر Ctrl أو Alt مع الحرف المحدد في نفس الوقت للانتقال فوراً لأي شاشة بنجاح، مع مراعاة مستوى صلاحيات المستخدم الحالي.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Shortcuts Table List */}
+              <div className="border border-slate-150 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-[320px] overflow-y-auto">
+                
+                {/* Table Header */}
+                <div className="grid grid-cols-12 bg-slate-50 py-2 px-3 text-[10px] font-black text-slate-500 uppercase tracking-wider text-right">
+                  <div className="col-span-5 text-right">{isEn ? 'Screen Terminal' : 'شاشة الوجهة'}</div>
+                  <div className="col-span-4 text-center">{isEn ? 'Shortcut Keys' : 'مفاتيح الاختصار'}</div>
+                  <div className="col-span-3 text-center">{isEn ? 'Your Access' : 'صلاحية حسابك'}</div>
+                </div>
+
+                {/* Table Rows */}
+                {[
+                  { key: 'P', nameAr: 'نقطة البيع (الكاشير)', nameEn: 'POS Sales Register', id: 'pos', icon: <ShoppingCart className="w-3.5 h-3.5 text-emerald-600" /> },
+                  { key: 'S', nameAr: 'قائمة فواتير المبيعات', nameEn: 'Sales Invoices Log', id: 'invoices', icon: <FileText className="w-3.5 h-3.5 text-indigo-600" /> },
+                  { key: 'I', nameAr: 'المخزن والمنتجات', nameEn: 'Inventory Control', id: 'inventory', icon: <Package className="w-3.5 h-3.5 text-amber-600" /> },
+                  { key: 'T', nameAr: 'فواتير المشتريات والتوريد', nameEn: 'Purchases Terminal', id: 'purchases', icon: <Receipt className="w-3.5 h-3.5 text-sky-600" /> },
+                  { key: 'C', nameAr: 'أقسام وتصنيفات المنتجات', nameEn: 'Product Categories', id: 'categories', icon: <Layers className="w-3.5 h-3.5 text-cyan-600" /> },
+                  { key: 'K', nameAr: 'العملاء والموردين الماليين', nameEn: 'Contacts (Cust/Supplier)', id: 'contacts', icon: <Users className="w-3.5 h-3.5 text-orange-600" /> },
+                  { key: 'R', nameAr: 'التقارير المالية والضريبية', nameEn: 'Financial Reports', id: 'reports', icon: <FileSpreadsheet className="w-3.5 h-3.5 text-purple-600" /> },
+                  { key: 'B', nameAr: 'النسخ الاحتياطي واستعادة الملفات', nameEn: 'Backups & DB Restore', id: 'backups', icon: <RefreshCw className="w-3.5 h-3.5 text-teal-600 font-bold" /> },
+                  { key: 'U', nameAr: 'إدارة الموظفين والصلاحيات', nameEn: 'Users & Permissions', id: 'users', icon: <UserCheck className="w-3.5 h-3.5 text-rose-600" /> },
+                  { key: 'D', nameAr: 'مستودع قاعدة البيانات السحابي', nameEn: 'DB Connectivity Control', id: 'database', icon: <Database className="w-3.5 h-3.5 text-blue-600" /> },
+                ].map((item) => {
+                  const allowed = hasAccess(item.id);
+                  return (
+                    <div key={item.id} className="grid grid-cols-12 py-2.5 px-3 items-center hover:bg-slate-50/75 transition-colors">
+                      
+                      {/* Name and Icon */}
+                      <div className="col-span-5 flex items-center gap-2">
+                        <span className="p-1 bg-slate-50 border border-slate-150 rounded">
+                          {item.icon}
+                        </span>
+                        <div className="truncate">
+                          <p className="font-extrabold text-slate-800 text-xxs truncate">{isEn ? item.nameEn : item.nameAr}</p>
+                          <p className="text-[9px] text-slate-400 capitalize">{item.id}</p>
+                        </div>
+                      </div>
+
+                      {/* Shortcut Triggers */}
+                      <div className="col-span-4 flex items-center justify-center gap-1">
+                        <kbd className="bg-slate-100 border border-slate-200 shadow-xxs rounded px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-600">Ctrl</kbd>
+                        <span className="text-slate-400 text-[10px] font-bold">/</span>
+                        <kbd className="bg-slate-100 border border-slate-200 shadow-xxs rounded px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-600">Alt</kbd>
+                        <span className="text-slate-400 text-[10px] font-bold">+</span>
+                        <kbd className="bg-blue-50 border border-blue-200 shadow-xxs rounded px-2 py-0.5 font-mono text-[10px] font-black text-blue-700 uppercase">{item.key}</kbd>
+                      </div>
+
+                      {/* Access Status Badge */}
+                      <div className="col-span-3 flex justify-center">
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                          allowed 
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/50' 
+                            : 'bg-rose-50 text-rose-800 border border-rose-200/50'
+                        }`}>
+                          {allowed ? (isEn ? 'Granted' : 'مسموح لك') : (isEn ? 'Locked' : 'محجوب')}
+                        </span>
+                      </div>
+
+                    </div>
+                  );
+                })}
+
+                {/* Help Shortcut */}
+                <div className="grid grid-cols-12 py-2.5 px-3 items-center bg-slate-50/50">
+                  <div className="col-span-5 flex items-center gap-2">
+                    <span className="p-1 bg-white border border-slate-200 rounded">
+                      <Keyboard className="w-3.5 h-3.5 text-slate-600" />
+                    </span>
+                    <div>
+                      <p className="font-extrabold text-slate-800 text-xxs">{isEn ? 'Toggle Shortcuts Help' : 'فتح وإغلاق دليل المفاتيح'}</p>
+                      <p className="text-[9px] text-slate-400">Help overlay</p>
+                    </div>
+                  </div>
+                  <div className="col-span-4 flex items-center justify-center gap-1">
+                    <kbd className="bg-slate-100 border border-slate-200 shadow-xxs rounded px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-600">Alt</kbd>
+                    <span className="text-slate-400 text-[10px] font-bold">+</span>
+                    <kbd className="bg-slate-100 border border-slate-200 shadow-xxs rounded px-2 py-0.5 font-mono text-[10px] font-black text-slate-700 uppercase">H</kbd>
+                  </div>
+                  <div className="col-span-3 flex justify-center">
+                    <span className="bg-blue-50 text-blue-800 border border-blue-200/50 px-2 py-0.5 rounded text-[9px] font-bold">
+                      {isEn ? 'General' : 'عام'}
+                    </span>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-150 flex justify-end gap-2">
+              <span className="text-slate-400 text-[9px] font-semibold self-center me-auto">
+                {isEn ? 'Press ESC to close anytime' : 'اضغط زر ESC في أي وقت للإغلاق السريع'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowShortcutsHelp(false)}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs py-2 px-5 rounded-xl cursor-pointer shadow-sm active:scale-95 transition-all"
+              >
+                {isEn ? 'Done & Close' : 'فهمت، إغلاق الدليل'}
+              </button>
+            </div>
+
           </div>
         </div>
       )}

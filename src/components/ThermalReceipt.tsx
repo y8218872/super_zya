@@ -19,15 +19,15 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
   const invoicePadding = settings.invoicePadding || 'normal';
 
   const fontSizes = {
-    sm: { root: '11px', title: '13px', sub: '10px', badge: '9px' },
-    base: { root: '12px', title: '14px', sub: '11px', badge: '10px' },
-    lg: { root: '14px', title: '16px', sub: '12px', badge: '11px' }
+    sm: { root: '13px', title: '15px', sub: '12px', badge: '11px' },
+    base: { root: '15px', title: '17px', sub: '14px', badge: '13px' },
+    lg: { root: '18px', title: '20px', sub: '16.5px', badge: '15px' }
   }[invoiceFontSize];
 
   const paddings = {
-    compact: 'p-2.5 space-y-1',
-    normal: 'p-4 space-y-1.5',
-    relaxed: 'p-6 space-y-2.5'
+    compact: 'p-3 space-y-1.5',
+    normal: 'p-5 space-y-2.5',
+    relaxed: 'p-7 space-y-3.5'
   }[invoicePadding];
   
   // Load customer phone if available
@@ -630,7 +630,8 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
               fontFamily: 'monospace', 
               borderTopColor: settings.accentColor || '#eab308',
               maxWidth: `${invoiceWidth}px`,
-              fontSize: fontSizes.root
+              fontSize: fontSizes.root,
+              fontWeight: 'bold'
             }}
           >
             {/* Header */}

@@ -66,7 +66,7 @@ export default function LoginScreen({ isEn, onLoginSuccess, employees }: LoginSc
           </p>
         </div>
 
-        {/* Demo Helper Alert Block */}
+        {/* Demo Helper Alert Block 
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-6 text-slate-700">
           <div className="flex gap-2 items-start text-xs md:text-sm">
             <Info className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
@@ -84,6 +84,7 @@ export default function LoginScreen({ isEn, onLoginSuccess, employees }: LoginSc
             </div>
           </div>
         </div>
+        */}
 
         <form onSubmit={handleLogin} className="space-y-4">
           
@@ -92,7 +93,7 @@ export default function LoginScreen({ isEn, onLoginSuccess, employees }: LoginSc
             <label className="block text-slate-700 text-sm font-semibold mb-2">
               {isEn ? 'Select User Account' : 'اختر حساب المستخدم'}
             </label>
-            <div className="grid grid-cols-1 gap-2 max-h-[160px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 gap-2 max-h-[260px] overflow-y-auto pr-1">
               {userList.map((usr) => {
                 const isSelected = selectedUser.id === usr.id;
                 return (
