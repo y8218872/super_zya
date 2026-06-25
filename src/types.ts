@@ -75,6 +75,7 @@ export interface SaleInvoice {
   customerId?: string;
   customerName?: string;
   isVoided?: boolean;
+  notes?: string;
 }
 
 export interface PurchaseItem {

@@ -54,6 +54,10 @@ export default function App() {
         reports: true,
         backups: true,
         users: true,
+        invoice_view_details: true,
+        invoice_print: true,
+        invoice_edit: true,
+        invoice_void: true,
       },
       manager: {
         pos: true,
@@ -65,6 +69,10 @@ export default function App() {
         reports: false,
         backups: false,
         users: false,
+        invoice_view_details: true,
+        invoice_print: true,
+        invoice_edit: true,
+        invoice_void: true,
       },
       cashier: {
         pos: true,
@@ -76,6 +84,10 @@ export default function App() {
         reports: false,
         backups: false,
         users: false,
+        invoice_view_details: true,
+        invoice_print: true,
+        invoice_edit: false,
+        invoice_void: false,
       },
     };
 
@@ -99,6 +111,11 @@ export default function App() {
 
   // Active Screen View
   const [activeScreen, setActiveScreen] = useState<'pos' | 'invoices' | 'inventory' | 'purchases' | 'contacts' | 'reports' | 'backups' | 'categories' | 'users' | 'database'>('pos');
+
+  // Control to hide blocked tabs from sidebar navigation for users
+  const [hideBlockedTabs, setHideBlockedTabs] = useState<boolean>(() => {
+    return localStorage.getItem('erp_hide_blocked_tabs') === 'true';
+  });
 
   // Database Connection Gating State
   const [dbConfig, setDbConfig] = useState(() => {
@@ -142,6 +159,9 @@ export default function App() {
   const [showMobileSim, setShowMobileSim] = useState<boolean>(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('synced');
+  const [hideRestrictedTabs, setHideRestrictedTabs] = useState<boolean>(() => {
+    return localStorage.getItem('erp_hide_restricted_tabs') === 'true';
+  });
 
   // Cashier POS Working states
   const [cart, setCart] = useState<{ product: Product; quantity: number; barcodeUsed: string }[]>([]);
@@ -149,6 +169,7 @@ export default function App() {
   const [posDiscount, setPosDiscount] = useState<number>(0);
   const [posPaymentMethod, setPosPaymentMethod] = useState<'cash' | 'card' | 'bank'>('cash');
   const [posPaidAmount, setPosPaidAmount] = useState<string>('');
+  const [posNotes, setPosNotes] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
 
@@ -177,6 +198,7 @@ export default function App() {
   const [editInvoiceDiscount, setEditInvoiceDiscount] = useState<number>(0);
   const [editInvoiceCashierName, setEditInvoiceCashierName] = useState<string>('');
   const [editInvoicePaid, setEditInvoicePaid] = useState<number>(0);
+  const [editInvoiceNotes, setEditInvoiceNotes] = useState<string>('');
   const [editInvoiceDate, setEditInvoiceDate] = useState<string>('');
   const [selectedAddProdId, setSelectedAddProdId] = useState<string>('');
 
@@ -491,6 +513,9 @@ export default function App() {
   // Global Keyboard Navigation & Action Shortcuts for Cashiers
   useEffect(() => {
     const handleShortcuts = (e: KeyboardEvent) => {
+      // Shortcuts are strictly allowed ONLY for the System Admin (مدير النظام)
+      if (currentUser?.role !== 'admin') return;
+
       const isCtrl = e.ctrlKey;
       const isAlt = e.altKey;
       const key = e.key.toLowerCase();
@@ -508,8 +533,8 @@ export default function App() {
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       const isTyping = targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select';
 
-      // Shortcuts helper modal: Alt + H or Ctrl + Alt + H
-      if ((isAlt && key === 'h') || (isCtrl && isAlt && key === 'h')) {
+      // Shortcuts helper modal: Alt + H or Ctrl + Alt + H (Only for System Admin)
+      if (((isAlt && key === 'h') || (isCtrl && isAlt && key === 'h')) && currentUser?.role === 'admin') {
         e.preventDefault();
         e.stopPropagation();
         setShowShortcutsHelp(prev => !prev);
@@ -649,7 +674,8 @@ export default function App() {
       cashierId: currentUser?.id || 'usr-default',
       cashierName: currentUser?.name || 'Cashier',
       customerId: posCustomer,
-      customerName: salesCustomerName ? (isEn ? salesCustomerName.nameEn : salesCustomerName.nameAr) : 'Cash Customer'
+      customerName: salesCustomerName ? (isEn ? salesCustomerName.nameEn : salesCustomerName.nameAr) : 'Cash Customer',
+      notes: posNotes.trim() || undefined
     };
 
     // Deduct stock levels and save movements
@@ -698,6 +724,7 @@ export default function App() {
     setPosDiscount(0);
     setPosPaidAmount('');
     setPosCustomer('cust-cash');
+    setPosNotes('');
   };
 
 
@@ -1051,6 +1078,10 @@ export default function App() {
 
   const handleSaveEditedInvoice = () => {
     if (!editingInvoice) return;
+    if (!hasAccess('invoice_edit')) {
+      showAlert(isEn ? 'You do not have permission to edit invoices!' : 'عذراً، ليس لديك صلاحية تعديل بيانات الفواتير!', 'warning');
+      return;
+    }
 
     // 1. Recalculate totals
     let calculatedSubtotal = 0;
@@ -1094,7 +1125,8 @@ export default function App() {
       paymentMethod: editInvoicePaymentMethod,
       customerId: editInvoiceCustomer,
       customerName: customerName,
-      cashierName: editInvoiceCashierName || editingInvoice.cashierName
+      cashierName: editInvoiceCashierName || editingInvoice.cashierName,
+      notes: editInvoiceNotes.trim() || undefined
     };
 
     // 2. Adjust product inventory stock levels
@@ -1178,8 +1210,8 @@ export default function App() {
 
 
   const handleVoidSaleInvoice = (invoice: SaleInvoice) => {
-    if (currentUser?.role !== 'admin' && currentUser?.role !== 'manager') {
-      showAlert(isEn ? 'Only Managers & Admins can void invoices!' : 'عذراً، يحق فقط لمدير النظام أو مسؤول المستودع إلغاء الفاتورة ورصد المرتجع!', 'warning');
+    if (!hasAccess('invoice_void')) {
+      showAlert(isEn ? 'You do not have permission to void or cancel invoices!' : 'عذراً، ليس لديك صلاحية إلغاء الفاتورة ورصد المرتجع!', 'warning');
       return;
     }
     
@@ -1425,14 +1457,16 @@ export default function App() {
           </button>
 
           {/* Keyboard Shortcuts Button */}
-          <button
-            onClick={() => setShowShortcutsHelp(true)}
-            className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold px-3 py-1.5 flex items-center gap-1.5 cursor-pointer text-slate-700 transition-colors"
-            title={isEn ? 'Show Keyboard Shortcuts (Alt+H)' : 'عرض اختصارات الكيبورد السريعة (Alt+H)'}
-          >
-            <Keyboard className="w-4 h-4 text-blue-600" />
-            <span className="hidden md:inline">{isEn ? 'Shortcuts' : 'الاختصارات'}</span>
-          </button>
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={() => setShowShortcutsHelp(true)}
+              className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold px-3 py-1.5 flex items-center gap-1.5 cursor-pointer text-slate-700 transition-colors"
+              title={isEn ? 'Show Keyboard Shortcuts (Alt+H)' : 'عرض اختصارات الكيبورد السريعة (Alt+H)'}
+            >
+              <Keyboard className="w-4 h-4 text-blue-600" />
+              <span className="hidden md:inline">{isEn ? 'Shortcuts' : 'الاختصارات'}</span>
+            </button>
+          )}
 
           {/* Floating Mobile Sim Toggle */}
           <button
@@ -1469,107 +1503,119 @@ export default function App() {
             {isEn ? 'Operations Terminal' : 'موانئ النظام والتحكم'}
           </div>
 
-          <button
-            onClick={() => {
-              if (hasAccess('pos')) setActiveScreen('pos');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('pos') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'pos' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <ShoppingCart className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'Cashier Invoice Register (POS)' : 'شاشة البيع ونقاط البيع'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('pos')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('pos')) setActiveScreen('pos');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('pos') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'pos' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <ShoppingCart className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'Cashier Invoice Register (POS)' : 'شاشة البيع ونقاط البيع'}</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              if (hasAccess('invoices')) setActiveScreen('invoices');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('invoices') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'invoices' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Receipt className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'Invoices Ledger (Sales)' : 'دفتر وقائمة الفواتير'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('invoices')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('invoices')) setActiveScreen('invoices');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('invoices') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'invoices' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Receipt className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'Invoices Ledger (Sales)' : 'دفتر وقائمة الفواتير'}</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              if (hasAccess('inventory')) setActiveScreen('inventory');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('inventory') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'inventory' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Package className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'Products Catalog (Stock)' : 'إدارة المستودع والأصناف'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('inventory')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('inventory')) setActiveScreen('inventory');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('inventory') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'inventory' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Package className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'Products Catalog (Stock)' : 'إدارة المستودع والأصناف'}</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              if (hasAccess('purchases')) setActiveScreen('purchases');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('purchases') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'purchases' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Landmark className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'Procurements (Purchases)' : 'شراء وتوريد بضائع'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('purchases')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('purchases')) setActiveScreen('purchases');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('purchases') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'purchases' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Landmark className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'Procurements (Purchases)' : 'شراء وتوريد بضائع'}</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              if (hasAccess('contacts')) setActiveScreen('contacts');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('contacts') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'contacts' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Users className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'Contacts & CRM' : 'الموظفون والعملاء والموردون'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('contacts')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('contacts')) setActiveScreen('contacts');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('contacts') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'contacts' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Users className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'Contacts & CRM' : 'الموظفون والعملاء والموردون'}</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              if (hasAccess('categories')) setActiveScreen('categories');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('categories') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'categories' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Layers className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'Product Categories' : 'إدارة وتسجيل الأقسام'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('categories')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('categories')) setActiveScreen('categories');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('categories') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'categories' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Layers className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'Product Categories' : 'إدارة وتسجيل الأقسام'}</span>
+            </button>
+          )}
 
           {hasAccess('users') && (
             <button
@@ -1588,39 +1634,43 @@ export default function App() {
             </button>
           )}
 
-          <button
-            onClick={() => {
-              if (hasAccess('reports')) setActiveScreen('reports');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('reports') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'reports' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <LayoutDashboard className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'P&L Reports / Analytics' : 'تقارير الأرباح والتحليلات'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('reports')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('reports')) setActiveScreen('reports');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('reports') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'reports' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <LayoutDashboard className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'P&L Reports / Analytics' : 'تقارير الأرباح والتحليلات'}</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              if (hasAccess('backups')) setActiveScreen('backups');
-              else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
-            }}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-              !hasAccess('backups') ? 'opacity-45 cursor-not-allowed' : ''
-            } ${
-              activeScreen === 'backups' 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <FileSpreadsheet className="w-4.5 h-4.5 shrink-0" />
-            <span>{isEn ? 'Cloud Sync & Backups' : 'النسخ والضبط العام'}</span>
-          </button>
+          {(!hideBlockedTabs || hasAccess('backups')) && (
+            <button
+              onClick={() => {
+                if (hasAccess('backups')) setActiveScreen('backups');
+                else showAlert(isEn ? 'Access denied' : 'غير مصرح للدخول لهذه الشاشة.', 'warning');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                !hasAccess('backups') ? 'opacity-45 cursor-not-allowed' : ''
+              } ${
+                activeScreen === 'backups' 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/15' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <FileSpreadsheet className="w-4.5 h-4.5 shrink-0" />
+              <span>{isEn ? 'Cloud Sync & Backups' : 'النسخ والضبط العام'}</span>
+            </button>
+          )}
 
           {currentUser?.role === 'admin' && (
             <button
@@ -1803,6 +1853,21 @@ export default function App() {
                       onChange={(e) => setPosPaidAmount(e.target.value)}
                       placeholder={isEn ? 'Leave empty for exact amount' : 'اتركه فارغاً للسداد بالصافي التلقائي'}
                       className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg text-xxs px-2.5 py-1.5 focus:outline-none font-bold"
+                    />
+                  </div>
+
+                  {/* Quick Notes for Active Sale */}
+                  <div>
+                    <label className="block text-[10px] text-slate-500 font-bold uppercase mb-1 flex items-center gap-1">
+                      <FileText className="w-3 h-3 text-slate-400" />
+                      <span>{isEn ? 'Quick Notes (Invoice Note)' : 'ملاحظات سريعة الفاتورة'}</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={posNotes}
+                      onChange={(e) => setPosNotes(e.target.value)}
+                      placeholder={isEn ? 'Add extra notes, special requests, or description...' : 'أضف ملاحظات الفاتورة، طلبات خاصة، أو تفاصيل...'}
+                      className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg text-xxs px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium resize-none"
                     />
                   </div>
 
@@ -2158,17 +2223,44 @@ export default function App() {
                               <td className="p-3 text-center flex justify-center gap-1.5 items-center">
                                 {/* Toggle Items Details */}
                                 <button
-                                  onClick={() => setExpandedInvoiceId(isExpanded ? null : inv.id)}
-                                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-bold cursor-pointer"
-                                  title={isEn ? 'View items list' : 'عرض المحتويات'}
+                                  onClick={() => {
+                                    if (!hasAccess('invoice_view_details')) {
+                                      showAlert(isEn ? 'Not authorized to view invoice items' : 'غير مصرح لك باستعراض محتويات ومواد الفاتورة!', 'warning');
+                                      return;
+                                    }
+                                    setExpandedInvoiceId(isExpanded ? null : inv.id);
+                                  }}
+                                  className={`px-2 py-1 rounded-md font-bold flex items-center gap-1 cursor-pointer transition-all text-xxs ${
+                                    hasAccess('invoice_view_details') 
+                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' 
+                                      : 'bg-slate-100 text-slate-400 opacity-50 cursor-not-allowed'
+                                  }`}
+                                  title={isEn 
+                                    ? (hasAccess('invoice_view_details') ? 'View items list' : 'Access Denied') 
+                                    : (hasAccess('invoice_view_details') ? 'عرض المحتويات' : 'الوصول محجوب')
+                                  }
                                 >
                                   {isExpanded ? (isEn ? 'Hide' : 'إخفاء') : (isEn ? 'Details' : 'عرض المواد')}
                                 </button>
                                 
                                 {/* Reprint */}
                                 <button
-                                  onClick={() => setActiveReceiptInvoice(inv)}
-                                  className="px-2 py-1 bg-blue-550 hover:bg-blue-650 text-white rounded-md font-bold flex items-center gap-1 cursor-pointer"
+                                  onClick={() => {
+                                    if (!hasAccess('invoice_print')) {
+                                      showAlert(isEn ? 'Not authorized to print/reprint invoices' : 'غير مصرح لك بطباعة أو إعادة إصدار الفواتير!', 'warning');
+                                      return;
+                                    }
+                                    setActiveReceiptInvoice(inv);
+                                  }}
+                                  className={`px-2 py-1 rounded-md font-bold flex items-center gap-1 cursor-pointer transition-all text-xxs ${
+                                    hasAccess('invoice_print')
+                                      ? 'bg-blue-550 hover:bg-blue-650 text-white'
+                                      : 'bg-blue-300 text-white/70 opacity-50 cursor-not-allowed'
+                                  }`}
+                                  title={isEn 
+                                    ? (hasAccess('invoice_print') ? 'Print Invoice' : 'Access Denied')
+                                    : (hasAccess('invoice_print') ? 'طباعة الفاتورة' : 'الوصول محجوب')
+                                  }
                                 >
                                   <Printer className="w-3 h-3 shrink-0" />
                                   <span>{isEn ? 'Print' : 'طباعة الفاتورة'}</span>
@@ -2178,6 +2270,10 @@ export default function App() {
                                 {!inv.isVoided && (
                                   <button
                                     onClick={() => {
+                                      if (!hasAccess('invoice_edit')) {
+                                        showAlert(isEn ? 'Not authorized to edit invoices' : 'غير مصرح لك بتعديل الفواتير الصادرة!', 'warning');
+                                        return;
+                                      }
                                       setEditingInvoice(inv);
                                       setEditInvoiceItems([...inv.items]);
                                       setEditInvoiceCustomer(inv.customerId || 'cust-cash');
@@ -2185,10 +2281,18 @@ export default function App() {
                                       setEditInvoiceDiscount(inv.discountTotal);
                                       setEditInvoiceCashierName(inv.cashierName);
                                       setEditInvoicePaid(inv.paidAmount);
+                                      setEditInvoiceNotes(inv.notes || '');
                                       setEditInvoiceDate(inv.timestamp.substring(0, 16)); // YYYY-MM-DDTHH:mm
                                     }}
-                                    className="px-2 py-1 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700 rounded-md font-bold flex items-center gap-1 cursor-pointer"
-                                    title={isEn ? 'Edit Invoice' : 'تعديل الفاتورة'}
+                                    className={`px-2 py-1 rounded-md font-bold flex items-center gap-1 cursor-pointer transition-all text-xxs ${
+                                      hasAccess('invoice_edit')
+                                        ? 'bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700'
+                                        : 'bg-amber-50/50 border border-amber-100 text-amber-400 opacity-50 cursor-not-allowed'
+                                    }`}
+                                    title={isEn 
+                                      ? (hasAccess('invoice_edit') ? 'Edit Invoice' : 'Access Denied') 
+                                      : (hasAccess('invoice_edit') ? 'تعديل الفاتورة' : 'الوصول محجوب')
+                                    }
                                   >
                                     <Edit3 className="w-3 h-3 shrink-0" />
                                     <span>{isEn ? 'Edit' : 'تعديل'}</span>
@@ -2198,8 +2302,22 @@ export default function App() {
                                 {/* Void / Cancel invoice */}
                                 {!inv.isVoided && (
                                   <button
-                                    onClick={() => handleVoidSaleInvoice(inv)}
-                                    className="px-2 py-1 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 rounded-md font-bold flex items-center gap-1 cursor-pointer"
+                                    onClick={() => {
+                                      if (!hasAccess('invoice_void')) {
+                                        showAlert(isEn ? 'Not authorized to void invoices' : 'غير مصرح لك بإرجاع الفاتورة وإلغائها!', 'warning');
+                                        return;
+                                      }
+                                      handleVoidSaleInvoice(inv);
+                                    }}
+                                    className={`px-2 py-1 rounded-md font-bold flex items-center gap-1 cursor-pointer transition-all text-xxs ${
+                                      hasAccess('invoice_void')
+                                        ? 'bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700'
+                                        : 'bg-rose-50/50 border border-rose-100 text-rose-400 opacity-50 cursor-not-allowed'
+                                    }`}
+                                    title={isEn
+                                      ? (hasAccess('invoice_void') ? 'Void Invoice' : 'Access Denied')
+                                      : (hasAccess('invoice_void') ? 'مرتجع الفاتورة' : 'الوصول محجوب')
+                                    }
                                   >
                                     <Ban className="w-3 h-3 shrink-0" />
                                     <span>{isEn ? 'Void' : 'مرتجع الفاتورة'}</span>
@@ -2209,7 +2327,7 @@ export default function App() {
                             </tr>
 
                             {/* Expanded items row */}
-                            {isExpanded && (
+                            {isExpanded && hasAccess('invoice_view_details') && (
                               <tr>
                                 <td colSpan={10} className="p-4 bg-slate-50 font-sans">
                                   <div className="border border-slate-200 rounded-xl bg-white p-3 space-y-3 shadow-inner">
@@ -2256,6 +2374,16 @@ export default function App() {
                                         ))}
                                       </div>
                                     </div>
+
+                                    {inv.notes && (
+                                      <div className="bg-amber-50/70 border border-amber-100 rounded-lg p-2.5 text-slate-800 text-xxs flex gap-2 items-start mt-2">
+                                        <FileText className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                        <div>
+                                          <p className="font-extrabold text-amber-800">{isEn ? 'Invoice Notes:' : 'ملاحظات الفاتورة:'}</p>
+                                          <p className="mt-0.5 text-slate-700 whitespace-pre-wrap font-medium">{inv.notes}</p>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -3875,6 +4003,36 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Control 4: Hide Restricted Tabs */}
+                  <div className="flex flex-col gap-1.5 min-w-[150px]">
+                    <span className="text-[10px] text-slate-300 font-extrabold">{isEn ? 'Restricted Tabs Visibility' : 'رؤية التبويبات المقيدة:'}</span>
+                    <div className="bg-slate-950 p-1 rounded-xl border border-slate-800 flex gap-1">
+                      {([true, false] as const).map((hide) => (
+                        <button
+                          key={String(hide)}
+                          type="button"
+                          onClick={() => {
+                            setHideRestrictedTabs(hide);
+                            localStorage.setItem('erp_hide_restricted_tabs', String(hide));
+                            showAlert(
+                              isEn 
+                                ? `Restricted tabs will be ${hide ? 'hidden' : 'disabled/visible'} for non-admin users.` 
+                                : `سيتم ${hide ? 'إخفاء' : 'إظهار وتعطيل'} التبويبات غير المصرح بها للموظفين.`,
+                              'success'
+                            );
+                          }}
+                          className={`flex-1 text-center py-1.5 px-3 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                            hideRestrictedTabs === hide 
+                              ? 'bg-blue-600 text-white shadow-md' 
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {hide ? (isEn ? 'Hide' : 'إخفاء') : (isEn ? 'Disable' : 'تعطيل فقط')}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
@@ -4237,9 +4395,9 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         const resetVal = {
-                          admin: { pos: true, invoices: true, inventory: true, purchases: true, contacts: true, categories: true, reports: true, backups: true, users: true },
-                          manager: { pos: true, invoices: true, inventory: true, purchases: true, contacts: true, categories: true, reports: false, backups: false, users: false },
-                          cashier: { pos: true, invoices: true, inventory: false, purchases: false, contacts: false, categories: false, reports: false, backups: false, users: false }
+                          admin: { pos: true, invoices: true, inventory: true, purchases: true, contacts: true, categories: true, reports: true, backups: true, users: true, invoice_view_details: true, invoice_print: true, invoice_edit: true, invoice_void: true },
+                          manager: { pos: true, invoices: true, inventory: true, purchases: true, contacts: true, categories: true, reports: false, backups: false, users: false, invoice_view_details: true, invoice_print: true, invoice_edit: true, invoice_void: true },
+                          cashier: { pos: true, invoices: true, inventory: false, purchases: false, contacts: false, categories: false, reports: false, backups: false, users: false, invoice_view_details: true, invoice_print: true, invoice_edit: false, invoice_void: false }
                         };
                         setRolePermissions(resetVal);
                         localStorage.setItem('erp_role_permissions', JSON.stringify(resetVal));
@@ -4249,6 +4407,42 @@ export default function App() {
                     >
                       🔄 {isEn ? 'Reset to Defaults' : 'إعادة التعيين للافتراضي'}
                     </button>
+                  </div>
+
+                  {/* Security Settings & Navigation Controls */}
+                  <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        ⚙️ {isEn ? 'Navigation Visibility Settings' : 'خيارات عرض شاشات القائمة الجانبية'}
+                      </h4>
+                      <p className="text-[10px] text-slate-500 max-w-xl leading-relaxed">
+                        {isEn 
+                          ? 'When enabled, blocked tabs/screens will be completely hidden from the sidebar navigation for users who do not have access, rather than appearing disabled.' 
+                          : 'عند تفعيل هذا الخيار، سيتم إخفاء الشاشات والتبويبات غير المصرح بها تماماً من القائمة الجانبية للمستخدمين بدلاً من إظهارها كمعطلة.'}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={hideBlockedTabs}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setHideBlockedTabs(val);
+                          localStorage.setItem('erp_hide_blocked_tabs', String(val));
+                          showAlert(
+                            isEn 
+                              ? `Navigation visibility updated: Blocked tabs will be ${val ? 'HIDDEN' : 'VISIBLE (Disabled)'}.`
+                              : `تم تحديث خيارات عرض القائمة: التبويبات غير المصرح بها ستكون ${val ? 'مخفية تماماً' : 'مرئية كمعطلة'}.`, 
+                            'success'
+                          );
+                        }}
+                      />
+                      <div className="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <span className="ms-2.5 text-xxs font-black text-slate-800">
+                        {hideBlockedTabs ? (isEn ? 'Hidden completely' : 'مخفية بالكامل') : (isEn ? 'Disabled state' : 'معطلة فقط')}
+                      </span>
+                    </label>
                   </div>
 
                   <div className="overflow-x-auto border border-slate-200 rounded-xl">
@@ -4265,6 +4459,10 @@ export default function App() {
                         {[
                           { id: 'pos', nameAr: 'شاشة نقطة البيع وتسجيل الفواتير (POS)', nameEn: 'Point of Sales Screen (POS)' },
                           { id: 'invoices', nameAr: 'دفتر وقائمة الفواتير وصلاحيات الالغاء والتعديل', nameEn: 'Invoices Ledger & Voiding' },
+                          { id: 'invoice_view_details', nameAr: '🔍 فواتير: صلاحية عرض تفاصيل ومواد الفاتورة', nameEn: '🔍 Invoices: View detailed items list' },
+                          { id: 'invoice_print', nameAr: '🖨️ فواتير: صلاحية طباعة وإعادة إصدار الفاتورة', nameEn: '🖨️ Invoices: Reprint & Print invoice' },
+                          { id: 'invoice_edit', nameAr: '✏️ فواتير: صلاحية تعديل بيانات الفواتير النشطة', nameEn: '✏️ Invoices: Edit registered sales invoice' },
+                          { id: 'invoice_void', nameAr: '🚫 فواتير: صلاحية إرجاع الفاتورة وإلغاء المعاملة', nameEn: '🚫 Invoices: Void/Return invoice transaction' },
                           { id: 'inventory', nameAr: 'مستودع السلع، تعديل الأصناف، وإضافة بضاعة (Stock)', nameEn: 'Warehouse & Stock Control' },
                           { id: 'categories', nameAr: 'إدارة وتسجيل وتعديل الأقسام وتصنيفات السلع', nameEn: 'Department Categories' },
                           { id: 'purchases', nameAr: 'إصدار فواتير المشتريات وتصفية الموردين', nameEn: 'Supplier Procurement Invoices' },
@@ -5229,6 +5427,21 @@ export default function App() {
                       className="w-full bg-white border border-slate-250 py-1 px-2.5 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
                     />
                   </div>
+                </div>
+
+                {/* Notes Edit Block */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <label className="block text-slate-700 font-extrabold mb-1 text-xxs flex items-center gap-1">
+                    <FileText className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{isEn ? 'Invoice Notes / Comments' : 'ملاحظات وتفاصيل الفاتورة'}</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editInvoiceNotes}
+                    onChange={(e) => setEditInvoiceNotes(e.target.value)}
+                    placeholder={isEn ? 'Edit invoice notes...' : 'تعديل ملاحظات الفاتورة...'}
+                    className="w-full bg-white border border-slate-250 py-1.5 px-3 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 resize-none"
+                  />
                 </div>
 
                 {/* Add product section */}

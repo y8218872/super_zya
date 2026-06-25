@@ -706,7 +706,11 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
     const pm = invoice.paymentMethod === 'cash' ? (isEn ? 'Cash' : 'نقداً') : invoice.paymentMethod === 'card' ? (isEn ? 'Card' : 'مدى/بطاقة') : (isEn ? 'Bank' : 'تحويل بنكي');
     msg += `• *${isEn ? 'Payment Method:' : 'طريقة الدفع:'}* ${pm}\n`;
     msg += `• *${isEn ? 'Paid Amount:' : 'المبلغ المستلم:'}* ${formatCurrency(invoice.paidAmount, isEn, settings)}\n`;
-    msg += `• *${isEn ? 'Change:' : 'المتبقي:'}* ${formatCurrency(invoice.changeAmount, isEn, settings)}\n\n`;
+    msg += `• *${isEn ? 'Change:' : 'المتبقي:'}* ${formatCurrency(invoice.changeAmount, isEn, settings)}\n`;
+    if (invoice.notes) {
+      msg += `• *${isEn ? 'Invoice Notes:' : 'ملاحظات الفاتورة:'}* ${invoice.notes}\n`;
+    }
+    msg += `\n`;
     
     // Footer message
     const footerMsg = isEn 
@@ -1037,6 +1041,14 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
                 <span>{formatCurrency(invoice.changeAmount, isEn, settings)}</span>
               </div>
             </div>
+
+            {/* Invoice Notes */}
+            {invoice.notes && (
+              <div className="border-b border-dashed border-stone-400 pb-1.5 mb-2 text-stone-850 text-start" style={{ fontSize: fontSizes.badge }}>
+                <span className="font-bold block border-b border-dotted border-stone-300 pb-0.5 mb-1">{isEn ? 'Notes:' : 'ملاحظات:'}</span>
+                <p className="whitespace-pre-wrap leading-tight font-medium text-stone-700">{invoice.notes}</p>
+              </div>
+            )}
 
             {/* ZATCA COMPLIANT QR CODE */}
             {settings.showQrCode !== false && (
