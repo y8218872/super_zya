@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { SaleInvoice, StoreSettings } from '../types';
 import { formatCurrency, formatDate, getZatcaQrCodeUrl } from '../initialData';
-import { Printer, X, Check, Download, RefreshCw, MessageSquare, Send } from 'lucide-react';
+import { Printer, X, Check, Download, RefreshCw, MessageSquare, Send, FileCode } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 interface ThermalReceiptProps {
@@ -63,13 +63,62 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
 
   const handlePrint = () => {
     try {
+      const printableArea = document.getElementById('printable-receipt-area');
+      if (!printableArea) {
+        window.print();
+        return;
+      }
+
+      // Create a print container directly under body
+      const printMount = document.createElement('div');
+      printMount.id = 'print-mount-point';
+      printMount.dir = !isEn ? 'rtl' : 'ltr';
+      
+      // Clone the printable area
+      const clone = printableArea.cloneNode(true) as HTMLElement;
+      
+      printMount.appendChild(clone);
+      document.body.appendChild(printMount);
+      
+      // Add class to body to hide everything else
+      document.body.classList.add('printing-receipt');
+
+      // Trigger print
       window.print();
+
+      // Clean up
+      setTimeout(() => {
+        document.body.classList.remove('printing-receipt');
+        if (document.body.contains(printMount)) {
+          document.body.removeChild(printMount);
+        }
+      }, 800);
     } catch (err) {
-      console.warn("Print dialogue failed inside sandbox iframe: ", err);
+      console.warn("Printing failed:", err);
+      window.print();
     }
   };
 
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingHtml, setIsExportingHtml] = useState(false);
+
+  // Helper to fetch external image as base64 data url to prevent canvas tainting
+  const fetchImageAsBase64 = async (url: string): Promise<string | null> => {
+    try {
+      const res = await fetch(url, { mode: 'cors' });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch (err) {
+      console.error("Failed to fetch image as base64:", err);
+      return null;
+    }
+  };
 
   const exportInvoiceToPdf = async () => {
     setIsExporting(true);
@@ -307,24 +356,39 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
       drawRow(isEn ? 'Change:' : 'المتبقي:', formatCurrency(invoice.changeAmount, isEn, settings), y, 10, true);
       y += 20;
       
-      // 7. QR Code Image Draw
+      // 7. QR Code Image Draw with robust CORS/Tainted canvas prevention
       if (settings.showQrCode !== false) {
-        const qrImage = new Image();
-        qrImage.crossOrigin = 'anonymous';
-        
-        await new Promise<void>((resolve) => {
-          qrImage.onload = () => {
-            // Centered QR Code
-            ctx.drawImage(qrImage, (width - 100) / 2, y, 100, 100);
-            y += 110;
-            resolve();
-          };
-          qrImage.onerror = (err) => {
-            console.error("Failed to load QR code for PDF canvas:", err);
-            resolve(); // proceed even if QR load fails
-          };
-          qrImage.src = qrCodeUrl;
-        });
+        const base64Qr = await fetchImageAsBase64(qrCodeUrl);
+        if (base64Qr) {
+          const qrImage = new Image();
+          await new Promise<void>((resolve) => {
+            qrImage.onload = () => {
+              try {
+                // Centered QR Code
+                ctx.drawImage(qrImage, (width - 100) / 2, y, 100, 100);
+                y += 110;
+              } catch (e) {
+                console.error("CORS block even with base64 conversion:", e);
+              }
+              resolve();
+            };
+            qrImage.onerror = () => resolve();
+            qrImage.src = base64Qr;
+          });
+        } else {
+          // Safe fallback - draw a beautiful dashed placeholder so the canvas is NEVER tainted and export never crashes!
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect((width - 100) / 2, y, 100, 100);
+          ctx.setLineDash([]);
+          
+          ctx.font = 'normal 10px Arial, sans-serif';
+          ctx.fillStyle = '#64748b';
+          ctx.textAlign = 'center';
+          ctx.fillText(isEn ? '[ QR Code ]' : '[ رمز الاستجابة السريعة ]', width / 2, y + 54);
+          y += 110;
+        }
         
         drawCenteredText(isEn ? 'Scan to verify tax invoice' : 'امسح للتحقق من الفاتورة الضريبية', 8, false, y);
         y += 20;
@@ -346,21 +410,132 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
       y += 14;
       drawCenteredText(isEn ? 'CRM Powered by AI Studio Workspaces' : 'برنامج مبيعات ذكي مدعوم سحابياً', 8, false, y);
       
-      // 9. Generate PDF via jsPDF
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      // 9. Generate PDF via jsPDF with try-catch safety on canvas data URL
+      let imgData = '';
+      try {
+        imgData = canvas.toDataURL('image/jpeg', 0.95);
+      } catch (toDataUrlError) {
+        console.warn("toDataURL with jpeg failed, trying png format fallback:", toDataUrlError);
+        try {
+          imgData = canvas.toDataURL('image/png');
+        } catch (pngError) {
+          console.error("PNG fallback also failed due to tainted canvas:", pngError);
+        }
+      }
       
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [80, (height * 80) / width]
-      });
-      
-      pdf.addImage(imgData, 'JPEG', 0, 0, 80, (height * 80) / width);
-      pdf.save(`invoice-${invoice.invoiceNumber}.pdf`);
+      if (imgData) {
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: [80, (height * 80) / width]
+        });
+        
+        pdf.addImage(imgData, 'JPEG', 0, 0, 80, (height * 80) / width);
+        pdf.save(`invoice-${invoice.invoiceNumber}.pdf`);
+      } else {
+        alert(isEn 
+          ? "Failed to generate PDF due to browser security restrictions. Please use another browser or open in a new tab." 
+          : "فشل تصدير الفاتورة كـ PDF بسبب قيود الأمان في المتصفح. يرجى محاولة فتح التطبيق في نافذة مستقلة أولاً.");
+      }
     } catch (error) {
       console.error("Error generating PDF:", error);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const exportInvoiceToHtml = async () => {
+    setIsExportingHtml(true);
+    try {
+      const printableArea = document.getElementById('printable-receipt-area');
+      if (!printableArea) return;
+
+      // Capture all stylesheets to keep styling perfectly consistent
+      const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+        .map(el => el.outerHTML)
+        .join('\n');
+
+      const isRtl = !isEn;
+      
+      // Create a clone of the printable element to manipulate QR Code source safely
+      const clone = printableArea.cloneNode(true) as HTMLElement;
+      
+      // Find the image element for QR and replace it with base64 if present for offline support
+      if (settings.showQrCode !== false) {
+        const qrImage = clone.querySelector('img');
+        if (qrImage) {
+          const base64Qr = await fetchImageAsBase64(qrCodeUrl);
+          if (base64Qr) {
+            qrImage.src = base64Qr;
+          }
+        }
+      }
+
+      const htmlContent = `<!DOCTYPE html>
+<html dir="${isRtl ? 'rtl' : 'ltr'}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Receipt - ${invoice.invoiceNumber}</title>
+    ${styles}
+    <style>
+      body {
+        background-color: #f1f5f9 !important;
+        color: #1c1917 !important;
+        margin: 0 !important;
+        padding: 24px 12px !important;
+        font-family: monospace;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        min-height: 100vh !important;
+      }
+      #printed-receipt-container {
+        background: white !important;
+        width: 100% !important;
+        max-width: ${invoiceWidth}px !important;
+        margin: 0 auto !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+        border-radius: 8px !important;
+        border-top: 8px solid ${settings.accentColor || '#eab308'} !important;
+        overflow: hidden;
+      }
+      @media print {
+        body {
+          background: white !important;
+          padding: 0 !important;
+        }
+        #printed-receipt-container {
+          box-shadow: none !important;
+          border-radius: 0 !important;
+          border-top: none !important;
+          max-width: 100% !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="printed-receipt-container">
+      <div class="${paddings}">
+        ${clone.innerHTML}
+      </div>
+    </div>
+  </body>
+</html>`;
+
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `receipt-${invoice.invoiceNumber}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export HTML:", err);
+    } finally {
+      setIsExportingHtml(false);
     }
   };
 
@@ -536,6 +711,24 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
                 <>
                   <Download className="w-4 h-4" />
                   <span>{isEn ? 'Export as PDF' : 'تصدير الفاتورة كـ PDF'}</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={exportInvoiceToHtml}
+              disabled={isExportingHtml}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-600/20 active:scale-[0.98] text-xs cursor-pointer select-none"
+            >
+              {isExportingHtml ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>{isEn ? 'Generating HTML...' : 'جاري تصدير HTML...'}</span>
+                </>
+              ) : (
+                <>
+                  <FileCode className="w-4 h-4" />
+                  <span>{isEn ? 'Export as HTML' : 'تصدير الفاتورة كـ HTML'}</span>
                 </>
               )}
             </button>

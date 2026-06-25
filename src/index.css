@@ -90,7 +90,38 @@ body {
   font-weight: 800;
 }
 
-.text-xxs-thin {
-  font-size: 11px;
-  font-weight: 100;
+/* Print optimizations for thermal receipt printing */
+@media print {
+  body.printing-receipt {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  /* Hide the entire React application root and modal backgrounds */
+  body.printing-receipt > *:not(#print-mount-point) {
+    display: none !important;
+  }
+  
+  /* Display only our mounted high fidelity printable area */
+  body.printing-receipt #print-mount-point {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+  }
+
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+  
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }
