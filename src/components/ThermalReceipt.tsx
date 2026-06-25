@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { SaleInvoice, StoreSettings } from '../types';
 import { formatCurrency, formatDate, getZatcaQrCodeUrl } from '../initialData';
-import { Printer, X, Check, Download, RefreshCw, MessageSquare, Send, FileCode } from 'lucide-react';
+import { Printer, X, Check, Download, RefreshCw, MessageSquare, Send, FileCode, ExternalLink } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 interface ThermalReceiptProps {
@@ -100,7 +100,7 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
   };
 
   const [isExporting, setIsExporting] = useState(false);
-  const [isExportingHtml, setIsExportingHtml] = useState(false);
+  const [isOpeningTab, setIsOpeningTab] = useState(false);
 
   // Helper to fetch external image as base64 data url to prevent canvas tainting
   const fetchImageAsBase64 = async (url: string): Promise<string | null> => {
@@ -444,11 +444,48 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
     }
   };
 
-  const exportInvoiceToHtml = async () => {
-    setIsExportingHtml(true);
+  const openInvoiceInNewTab = async () => {
+    setIsOpeningTab(true);
+    // Open a blank tab immediately to avoid browser popup block rules
+    const newTab = window.open('', '_blank');
+    if (!newTab) {
+      alert(isEn 
+        ? "Failed to open new tab. Please check your browser's pop-up blocker."
+        : "فشل فتح تبويب جديد. يرجى التحقق من مانع النوافذ المنبثقة في متصفحك.");
+      setIsOpeningTab(false);
+      return;
+    }
+
+    // Write a loading placeholder
+    newTab.document.write(`
+      <html>
+        <head>
+          <title>${isEn ? 'Loading...' : 'جاري التحميل...'}</title>
+          <style>
+            body {
+              font-family: system-ui, -apple-system, sans-serif;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              height: 100vh;
+              background-color: #f8fafc;
+              color: #64748b;
+              margin: 0;
+            }
+          </style>
+        </head>
+        <body>
+          <div>${isEn ? 'Preparing receipt view...' : 'جاري تحضير معاينة الفاتورة...'}</div>
+        </body>
+      </html>
+    `);
+
     try {
       const printableArea = document.getElementById('printable-receipt-area');
-      if (!printableArea) return;
+      if (!printableArea) {
+        newTab.close();
+        return;
+      }
 
       // Capture all stylesheets to keep styling perfectly consistent
       const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
@@ -471,39 +508,95 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
         }
       }
 
+      const printButtonText = isEn ? 'Print Invoice' : 'طباعة الفاتورة';
+      const titleText = isEn ? `Receipt #${invoice.invoiceNumber}` : `معاينة فاتورة رقم ${invoice.invoiceNumber}`;
+
       const htmlContent = `<!DOCTYPE html>
 <html dir="${isRtl ? 'rtl' : 'ltr'}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Receipt - ${invoice.invoiceNumber}</title>
+    <title>${titleText}</title>
     ${styles}
     <style>
       body {
         background-color: #f1f5f9 !important;
         color: #1c1917 !important;
         margin: 0 !important;
-        padding: 24px 12px !important;
+        padding: 88px 12px 24px 12px !important;
         font-family: monospace;
         display: flex !important;
         justify-content: center !important;
-        align-items: center !important;
+        align-items: flex-start !important;
         min-height: 100vh !important;
       }
+      
+      /* Print control top bar */
+      .top-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 64px;
+        background-color: #0f172a;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        z-index: 9999;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      
+      .top-bar-title {
+        font-weight: bold;
+        font-size: 15px;
+      }
+      
+      .print-btn {
+        background-color: ${settings.accentColor || '#eab308'};
+        color: #0f172a;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 800;
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.15s ease-in-out;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+      }
+      
+      .print-btn:hover {
+        opacity: 0.95;
+        transform: translateY(-1px);
+      }
+      
+      .print-btn:active {
+        transform: translateY(0);
+      }
+      
       #printed-receipt-container {
         background: white !important;
         width: 100% !important;
         max-width: ${invoiceWidth}px !important;
         margin: 0 auto !important;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-        border-radius: 8px !important;
+        border-radius: 12px !important;
         border-top: 8px solid ${settings.accentColor || '#eab308'} !important;
         overflow: hidden;
       }
+      
       @media print {
         body {
           background: white !important;
           padding: 0 !important;
+        }
+        .top-bar {
+          display: none !important;
         }
         #printed-receipt-container {
           box-shadow: none !important;
@@ -515,6 +608,13 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
     </style>
   </head>
   <body>
+    <div class="top-bar">
+      <div class="top-bar-title">${titleText}</div>
+      <button class="print-btn" onclick="window.print()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        <span>${printButtonText}</span>
+      </button>
+    </div>
     <div id="printed-receipt-container">
       <div class="${paddings}">
         ${clone.innerHTML}
@@ -523,19 +623,14 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
   </body>
 </html>`;
 
-      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `receipt-${invoice.invoiceNumber}.html`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      newTab.document.open();
+      newTab.document.write(htmlContent);
+      newTab.document.close();
     } catch (err) {
-      console.error("Failed to export HTML:", err);
+      console.error("Failed to populate new tab:", err);
+      newTab.close();
     } finally {
-      setIsExportingHtml(false);
+      setIsOpeningTab(false);
     }
   };
 
@@ -716,19 +811,19 @@ export default function ThermalReceipt({ isEn, invoice, settings, onClose }: The
             </button>
 
             <button
-              onClick={exportInvoiceToHtml}
-              disabled={isExportingHtml}
+              onClick={openInvoiceInNewTab}
+              disabled={isOpeningTab}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-600/20 active:scale-[0.98] text-xs cursor-pointer select-none"
             >
-              {isExportingHtml ? (
+              {isOpeningTab ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>{isEn ? 'Generating HTML...' : 'جاري تصدير HTML...'}</span>
+                  <span>{isEn ? 'Opening Tab...' : 'جاري فتح تبويب جديد...'}</span>
                 </>
               ) : (
                 <>
-                  <FileCode className="w-4 h-4" />
-                  <span>{isEn ? 'Export as HTML' : 'تصدير الفاتورة كـ HTML'}</span>
+                  <ExternalLink className="w-4 h-4" />
+                  <span>{isEn ? 'Open in New Tab (Print)' : 'فتح في تبويب جديد (طباعة)'}</span>
                 </>
               )}
             </button>
