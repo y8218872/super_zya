@@ -122,16 +122,25 @@ export default function App() {
     const stored = localStorage.getItem('erp_db_config');
     if (stored) {
       try {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (parsed.host === 'postgres-production.cloudsql.internal') {
+          parsed.type = 'postgresql';
+          parsed.host = '2tfczl.h.filess.io';
+          parsed.port = 5434;
+          parsed.database = 'postgre_alreadyfed';
+          parsed.username = 'postgre_alreadyfed';
+          parsed.password = '59033e066ac4ddf1775ac23fdb023681abfa6323';
+        }
+        return parsed;
       } catch (e) {}
     }
     return {
-      type: 'localStorage', // 'localStorage' | 'firebase' | 'postgresql'
-      host: 'postgres-production.cloudsql.internal',
-      port: 5432,
-      database: 'enterprise_erp_db',
-      username: 'db_master_admin',
-      password: '••••••••••••••••',
+      type: 'postgresql', // 'localStorage' | 'firebase' | 'postgresql'
+      host: '2tfczl.h.filess.io',
+      port: 5434,
+      database: 'postgre_alreadyfed',
+      username: 'postgre_alreadyfed',
+      password: '59033e066ac4ddf1775ac23fdb023681abfa6323',
       status: 'connected', // 'connected' | 'disconnected' | 'error'
       lastSync: new Date().toISOString()
     };
@@ -387,6 +396,107 @@ export default function App() {
     document.documentElement.lang = isEn ? 'en' : 'ar';
   }, [isEn]);
 
+  const performRealCloudPush = async (customState?: any) => {
+    if (dbConfig.type !== 'postgresql') return;
+    try {
+      setSyncStatus('syncing');
+      const payload = customState || {
+        settings,
+        products,
+        customers,
+        suppliers,
+        sales,
+        purchases,
+        categories,
+        movements,
+        employees,
+        rolePermissions
+      };
+      const response = await fetch('/api/db/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('idle');
+      }
+    } catch (e) {
+      console.error('Real cloud sync push error:', e);
+      setSyncStatus('idle');
+    }
+  };
+
+  const performRealCloudPull = async () => {
+    if (dbConfig.type !== 'postgresql') return;
+    try {
+      setSyncStatus('syncing');
+      const response = await fetch('/api/db/pull');
+      const result = await response.json();
+      if (result.success && result.data) {
+        const d = result.data;
+        if (d.settings && Object.keys(d.settings).length > 0) {
+          setSettings(d.settings);
+          localStorage.setItem('erp_settings', JSON.stringify(d.settings));
+        }
+        if (Array.isArray(d.products) && d.products.length > 0) {
+          setProducts(d.products);
+          localStorage.setItem('erp_products', JSON.stringify(d.products));
+        }
+        if (Array.isArray(d.customers) && d.customers.length > 0) {
+          setCustomers(d.customers);
+          localStorage.setItem('erp_customers', JSON.stringify(d.customers));
+        }
+        if (Array.isArray(d.suppliers) && d.suppliers.length > 0) {
+          setSuppliers(d.suppliers);
+          localStorage.setItem('erp_suppliers', JSON.stringify(d.suppliers));
+        }
+        if (Array.isArray(d.sales) && d.sales.length > 0) {
+          setSales(d.sales);
+          localStorage.setItem('erp_sales', JSON.stringify(d.sales));
+        }
+        if (Array.isArray(d.purchases) && d.purchases.length > 0) {
+          setPurchases(d.purchases);
+          localStorage.setItem('erp_purchases', JSON.stringify(d.purchases));
+        }
+        if (Array.isArray(d.categories) && d.categories.length > 0) {
+          setCategories(d.categories);
+          localStorage.setItem('erp_categories', JSON.stringify(d.categories));
+        }
+        if (Array.isArray(d.movements) && d.movements.length > 0) {
+          setMovements(d.movements);
+          localStorage.setItem('erp_movements', JSON.stringify(d.movements));
+        }
+        if (Array.isArray(d.employees) && d.employees.length > 0) {
+          setEmployees(d.employees);
+          localStorage.setItem('erp_employees', JSON.stringify(d.employees));
+        }
+        if (d.rolePermissions && Object.keys(d.rolePermissions).length > 0) {
+          setRolePermissions(d.rolePermissions);
+          localStorage.setItem('erp_role_permissions', JSON.stringify(d.rolePermissions));
+        }
+        setSyncStatus('synced');
+        showAlert(
+          isEn ? 'Synchronized and loaded all database records successfully!' : 'تم مزامنة وسحب جميع السجلات والمستندات من قاعدة البيانات بنجاح!',
+          'success'
+        );
+      }
+    } catch (e: any) {
+      console.error('Real cloud sync pull error:', e);
+      setSyncStatus('idle');
+    }
+  };
+
+  // Run on mount once database loads
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      performRealCloudPull();
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [dbConfig.type]);
+
   // Simulated live cloud save indicator when local data changes
   const triggerAutoSync = () => {
     if (!isAutoSyncing) return;
@@ -402,47 +512,159 @@ export default function App() {
     setProducts(updatedProducts);
     localStorage.setItem('erp_products', JSON.stringify(updatedProducts));
     triggerAutoSync();
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products: updatedProducts,
+        customers,
+        suppliers,
+        sales,
+        purchases,
+        categories,
+        movements,
+        employees,
+        rolePermissions
+      });
+    }
   };
 
   const saveSalesToDb = (updatedSales: SaleInvoice[]) => {
     setSales(updatedSales);
     localStorage.setItem('erp_sales', JSON.stringify(updatedSales));
     triggerAutoSync();
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products,
+        customers,
+        suppliers,
+        sales: updatedSales,
+        purchases,
+        categories,
+        movements,
+        employees,
+        rolePermissions
+      });
+    }
   };
 
   const savePurchasesToDb = (updatedPurchases: PurchaseInvoice[]) => {
     setPurchases(updatedPurchases);
     localStorage.setItem('erp_purchases', JSON.stringify(updatedPurchases));
     triggerAutoSync();
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products,
+        customers,
+        suppliers,
+        sales,
+        purchases: updatedPurchases,
+        categories,
+        movements,
+        employees,
+        rolePermissions
+      });
+    }
   };
 
   const saveCustomersToDb = (updatedCustomers: Customer[]) => {
     setCustomers(updatedCustomers);
     localStorage.setItem('erp_customers', JSON.stringify(updatedCustomers));
     triggerAutoSync();
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products,
+        customers: updatedCustomers,
+        suppliers,
+        sales,
+        purchases,
+        categories,
+        movements,
+        employees,
+        rolePermissions
+      });
+    }
   };
 
   const saveSuppliersToDb = (updatedSuppliers: Supplier[]) => {
     setSuppliers(updatedSuppliers);
     localStorage.setItem('erp_suppliers', JSON.stringify(updatedSuppliers));
     triggerAutoSync();
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products,
+        customers,
+        suppliers: updatedSuppliers,
+        sales,
+        purchases,
+        categories,
+        movements,
+        employees,
+        rolePermissions
+      });
+    }
   };
 
   const saveMovementsToDb = (updatedMovements: StockMovement[]) => {
     setMovements(updatedMovements);
     localStorage.setItem('erp_movements', JSON.stringify(updatedMovements));
     triggerAutoSync();
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products,
+        customers,
+        suppliers,
+        sales,
+        purchases,
+        categories,
+        movements: updatedMovements,
+        employees,
+        rolePermissions
+      });
+    }
   };
 
   const saveEmployeesToDb = (updatedEmployees: User[]) => {
     setEmployees(updatedEmployees);
     localStorage.setItem('erp_employees', JSON.stringify(updatedEmployees));
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products,
+        customers,
+        suppliers,
+        sales,
+        purchases,
+        categories,
+        movements,
+        employees: updatedEmployees,
+        rolePermissions
+      });
+    }
   };
 
   const saveCategoriesToDb = (updatedCategories: Category[]) => {
     setCategories(updatedCategories);
     localStorage.setItem('erp_categories', JSON.stringify(updatedCategories));
     triggerAutoSync();
+    if (dbConfig.type === 'postgresql' && isAutoSyncing) {
+      performRealCloudPush({
+        settings,
+        products,
+        customers,
+        suppliers,
+        sales,
+        purchases,
+        categories: updatedCategories,
+        movements,
+        employees,
+        rolePermissions
+      });
+    }
   };
 
 
@@ -4892,16 +5114,44 @@ export default function App() {
                   <div className="space-y-2.5 pt-4">
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         showAlert(isEn ? 'Pinging server port...' : 'جاري فحص الخادم والتخويل المتبادل...', 'info');
-                        setTimeout(() => {
+                        try {
+                          const response = await fetch('/api/db/test', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              host: dbConfig.host,
+                              port: dbConfig.port,
+                              database: dbConfig.database,
+                              username: dbConfig.username,
+                              password: dbConfig.password
+                            })
+                          });
+                          const res = await response.json();
+                          if (res.success) {
+                            showAlert(
+                              isEn 
+                                ? `Handshake successful! Connected to ${dbConfig.database} with latency ${res.latency || '12ms'}.` 
+                                : `تم فحص الاتصال بالخادم بنجاح! سرعة الاستجابة ${res.latency || '12ms'} والبيئة نشطة بالكامل.`,
+                              'success'
+                            );
+                            setDbConfig(prev => ({ ...prev, status: 'connected' }));
+                          } else {
+                            showAlert(
+                              isEn 
+                                ? `Handshake failed: ${res.message}` 
+                                : `فشل الاتصال بالخادم: ${res.message}`,
+                              'warning'
+                            );
+                            setDbConfig(prev => ({ ...prev, status: 'error' }));
+                          }
+                        } catch (err: any) {
                           showAlert(
-                            isEn 
-                              ? `Handshake successful! Connected to ${dbConfig.type === 'localStorage' ? 'Browser Storage' : dbConfig.database} with latency 12ms.` 
-                              : `تم فحص الاتصال بالخادم بنجاح! سرعة الاستجابة 12ms والبيئة نشطة بالكامل.`,
-                            'success'
+                            isEn ? `Handshake failed: ${err.message}` : `فشل الاتصال: ${err.message}`,
+                            'warning'
                           );
-                        }, 1200);
+                        }
                       }}
                       className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xxs py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md select-none"
                     >
@@ -4911,16 +5161,46 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={() => {
-                        showAlert(isEn ? 'Pushing local invoices & stocks to cloud... 0%' : 'بدء مزامنة السلع والفواتير ورفع البيانات... 0%', 'info');
-                        setTimeout(() => {
+                      onClick={async () => {
+                        showAlert(isEn ? 'Pushing local invoices & stocks to cloud...' : 'بدء مزامنة السلع والفواتير ورفع البيانات...', 'info');
+                        try {
+                          const payload = {
+                            settings,
+                            products,
+                            customers,
+                            suppliers,
+                            sales,
+                            purchases,
+                            categories,
+                            movements,
+                            employees,
+                            rolePermissions
+                          };
+                          const response = await fetch('/api/db/push', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                          });
+                          const res = await response.json();
+                          if (res.success) {
+                            showAlert(
+                              isEn 
+                                ? `Sync completed! Pushed ${products.length} products and ${sales.length} invoices to database successfully.` 
+                                : `اكتملت المزامنة بنجاح! تم رفع ومزامنة ${products.length} سلعة و ${sales.length} فاتورة في قاعدة البيانات.`,
+                              'success'
+                            );
+                          } else {
+                            showAlert(
+                              isEn ? `Push failed: ${res.message}` : `فشل الرفع: ${res.message}`,
+                              'warning'
+                            );
+                          }
+                        } catch (err: any) {
                           showAlert(
-                            isEn 
-                              ? `Sync completed! Pushed ${products.length} products and ${sales.length} invoices to database successfully.` 
-                              : `اكتملت المزامنة بنجاح! تم رفع ومزامنة ${products.length} سلعة و ${sales.length} فاتورة في قاعدة البيانات.`,
-                            'success'
+                            isEn ? `Sync failed: ${err.message}` : `فشلت المزامنة: ${err.message}`,
+                            'warning'
                           );
-                        }, 1200);
+                        }
                       }}
                       className="w-full bg-blue-50 text-blue-700 hover:bg-blue-100 font-extrabold text-[10px] py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer select-none"
                     >
